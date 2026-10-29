@@ -10,61 +10,63 @@ library bitvis_vip_scoreboard;
 use bitvis_vip_scoreboard.generic_sb_support_pkg.all;
 
 entity nco_tb is
+    generic (
+        GC_PHASE_WIDTH  : positive := 8; -- N accumulator width
+        GC_ADDR_WIDTH   : positive := 4; -- M LUT address = top M bits of the phase
+        GC_SAMPLE_WIDTH : positive := 8  -- L output amplitude width
+    );
 end entity nco_tb;
 
 architecture bhv of nco_tb is
-
-    constant GC_PHASE_BITS : positive := 8; -- N accumulator width
-    constant GC_ADDR_BITS  : positive := 4; -- M LUT address = top M bits of the phase
-    constant GC_OUT_BITS   : positive := 8; -- L output amplitude width
-
     constant C_TCLK      : time     := 10 ns;
-    constant C_AMPLITUDE : integer  := 2**(GC_OUT_BITS - 1) - 1;
-    constant C_UNIT_STEP : positive := 2**(GC_PHASE_BITS - GC_ADDR_BITS); -- one LUT address per sample
-    constant C_PERIOD    : positive := 2**GC_ADDR_BITS;                   -- samples per period at C_UNIT_STEP
+    constant C_AMPLITUDE : integer  := 2 ** (GC_SAMPLE_WIDTH - 1) - 1;
+    constant C_UNIT_STEP : positive := 2 ** (GC_PHASE_WIDTH - GC_ADDR_WIDTH); -- one LUT address per sample
+    constant C_PERIOD    : positive := 2 ** GC_ADDR_WIDTH;                    -- samples per period at C_UNIT_STEP
 
     -- entity signals
-    signal clk       : std_logic := '0';
-    signal clk_en    : std_logic := '0';
-    signal reset     : std_logic := '1';
-    signal step_size : unsigned(GC_PHASE_BITS - 1 downto 0) := (others => '0');
-    signal valid     : std_logic;
-    signal sine_wave : signed(GC_OUT_BITS - 1 downto 0);
+    signal clk        : std_logic                             := '0';
+    signal clk_en     : std_logic                             := '0';
+    signal reset      : std_logic                             := '1';
+    signal step_size  : unsigned(GC_PHASE_WIDTH - 1 downto 0) := (others => '0');
+    signal sine_valid : std_logic;
+    signal sine_data  : signed(GC_SAMPLE_WIDTH - 1 downto 0);
 
     -- used to check peak sine wave values
-    signal peak_max  : integer := 0;
-    signal peak_min  : integer := 0;
+    signal s_peak_max : integer := 0;
+    signal s_peak_min : integer := 0;
 
     -- expected samples, written by p_model and consumed by p_checker
-    shared variable sb : bitvis_vip_scoreboard.int_sb_pkg.t_generic_sb;
+    shared variable sb   : bitvis_vip_scoreboard.int_sb_pkg.t_generic_sb;
+    signal watchdog_ctrl : t_watchdog_ctrl := C_WATCHDOG_CTRL_DEFAULT; -- watchdog
 
     -- reference model: expected output for an accumulator value
-    function f_expected(phase : unsigned) return integer is
-        constant C_ADDRESS : natural := to_integer(phase(phase'high downto phase'high - GC_ADDR_BITS + 1));
+    function f_expected(constant phase : unsigned) return integer is
+        constant C_ADDRESS                 : natural := to_integer(phase(phase'high downto phase'high - GC_ADDR_WIDTH + 1));
     begin
-        return integer(round(sin(MATH_2_PI * real(C_ADDRESS) / real(2**GC_ADDR_BITS)) * real(C_AMPLITUDE)));
+        return integer(round(sin(MATH_2_PI * real(C_ADDRESS) / real(2 ** GC_ADDR_WIDTH)) * real(C_AMPLITUDE)));
     end function;
 begin
     clock_generator(clk, C_TCLK);
+    watchdog_timer(watchdog_ctrl, 50 us, FAILURE, "nco simulation hung");
 
     i_dut : entity work.nco
         generic map(
-            GC_PHASE_BITS => GC_PHASE_BITS,
-            GC_ADDR_BITS  => GC_ADDR_BITS,
-            GC_OUT_BITS   => GC_OUT_BITS
+            GC_PHASE_WIDTH  => GC_PHASE_WIDTH,
+            GC_ADDR_WIDTH   => GC_ADDR_WIDTH,
+            GC_SAMPLE_WIDTH => GC_SAMPLE_WIDTH
         )
         port map(
-            clk       => clk,
-            clk_en    => clk_en,
-            reset     => reset,
-            step_size => step_size,
-            valid     => valid,
-            sine_wave => sine_wave
+            clk        => clk,
+            clk_en     => clk_en,
+            reset      => reset,
+            step_size  => step_size,
+            sine_valid => sine_valid,
+            sine_data  => sine_data
         );
 
     -- Model: mirrors the accumulator and adds one expected sample per clk_en
     p_model : process (clk)
-        variable v_phase : unsigned(GC_PHASE_BITS - 1 downto 0) := (others => '0');
+        variable v_phase : unsigned(GC_PHASE_WIDTH - 1 downto 0) := (others => '0');
     begin
         if rising_edge(clk) then
             if reset = '1' then
@@ -84,15 +86,15 @@ begin
     p_checker : process (clk)
     begin
         if rising_edge(clk) then
-            if reset = '0' and valid = '1' then
-                sb.check_received(to_integer(sine_wave));
-                peak_max <= maximum(peak_max, to_integer(sine_wave));
-                peak_min <= minimum(peak_min, to_integer(sine_wave));
+            if reset = '0' and sine_valid = '1' then
+                sb.check_received(to_integer(sine_data));
+                s_peak_max <= maximum(s_peak_max, to_integer(sine_data));
+                s_peak_min <= minimum(s_peak_min, to_integer(sine_data));
             end if;
         end if;
     end process;
 
-    stimulus : process
+    p_stimulus : process
         procedure step(constant n : positive := 1) is
         begin
             wait_num_rising_edge_plus_margin(clk, n, C_TCLK/4);
@@ -115,7 +117,7 @@ begin
             end loop;
         end procedure;
 
-        procedure drain is   -- let the pipeline empty, then check nothing was lost
+        procedure drain is -- let the pipeline empty, then check nothing was lost
         begin
             step(8);
             check_value(sb.is_empty(VOID), ERROR, "every clk_en produced exactly one valid");
@@ -130,24 +132,24 @@ begin
         sb.config(C_SB_CONFIG_DEFAULT);
         sb.set_scope("NCO SB");
         sb.enable(VOID);
-        sb.disable_log_msg(ID_DATA);       -- don't log every add/check
+        sb.disable_log_msg(ID_DATA); -- don't log every add/check
 
         log(ID_LOG_HDR, "Reset");
         step(2);
         reset <= '0';
         step;
-        check_value(valid, '0', ERROR, "valid low after reset");
+        check_value(sine_valid, '0', ERROR, "sine_valid low after reset");
 
         log(ID_LOG_HDR, "One period, one LUT address per sample");
         set_step(C_UNIT_STEP);
         run_samples(C_PERIOD);
         drain;
-        check_value(peak_max, C_AMPLITUDE, ERROR, "positive peak");
-        check_value(peak_min, -C_AMPLITUDE, ERROR, "negative peak");
+        check_value(s_peak_max, C_AMPLITUDE, ERROR, "positive peak");
+        check_value(s_peak_min, -C_AMPLITUDE, ERROR, "negative peak");
 
         log(ID_LOG_HDR, "Odd step size, several accumulator wraps");
         set_step(37);
-        run_samples(3 * 2**GC_PHASE_BITS / 37);
+        run_samples(3 * 2 ** GC_PHASE_WIDTH / 37);
         drain;
 
         log(ID_LOG_HDR, "clk_en as a slow sample strobe");
@@ -159,7 +161,7 @@ begin
         run_samples(5);
         reset <= '1';
         step;
-        check_value(valid, '0', ERROR, "valid cleared by reset");
+        check_value(sine_valid, '0', ERROR, "sine_valid cleared by reset");
         reset <= '0';
         run_samples(C_PERIOD);
         drain;
