@@ -3,6 +3,7 @@ use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 use ieee.math_real.all;
 use work.sine_lut_pkg.all;
+use work.nco_pkg.all;
 
 entity nco is
     generic (
@@ -19,17 +20,16 @@ entity nco is
         sine_data  : out signed(GC_SAMPLE_WIDTH - 1 downto 0)
     );
 begin
-    assert GC_ADDR_WIDTH <= GC_PHASE_WIDTH;
+    assert f_nco_config_ok(GC_PHASE_WIDTH, GC_ADDR_WIDTH, GC_SAMPLE_WIDTH) severity failure;
 end entity nco;
 
 architecture rtl of nco is
-    constant C_LUT     : t_sine_lut := f_sine_lut(GC_ADDR_WIDTH, GC_SAMPLE_WIDTH);
-    constant C_LATENCY : positive   := 2; -- clocks from clk_en to sine_valid/sine_data
+    constant C_LUT : t_sine_lut := f_sine_lut(GC_ADDR_WIDTH, GC_SAMPLE_WIDTH);
 
     signal s_accumulator : unsigned(GC_PHASE_WIDTH - 1 downto 0) := (others => '0');
     signal s_rom         : signed(GC_SAMPLE_WIDTH - 1 downto 0); -- RAM read stage
     signal s_sine_data   : signed(GC_SAMPLE_WIDTH - 1 downto 0); -- RAM output  
-    signal s_valid_dly   : std_logic_vector(C_LATENCY - 1 downto 0) := (others => '0');
+    signal s_valid_dly   : std_logic_vector(C_NCO_LATENCY - 1 downto 0) := (others => '0');
 begin
     -- Accumulator: increases by step-size each clock
     p_accumulator : process (clk, reset)

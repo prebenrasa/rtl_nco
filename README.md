@@ -10,6 +10,7 @@ Output frequency: `f_out = step_size * f_clk / 2^N`
 |---|---|
 | `src/nco.vhd` | The NCO |
 | `src/sine_lut_pkg.vhd` | Function that builds the sine table |
+| `src/nco_pkg.vhd` | `C_NCO_LATENCY`, step-size and configuration-check functions for NCO users |
 | `tb/nco_tb.vhd` | Self-checking UVVM testbench with a scoreboard |
 | `tb/sine_lut_pkg_tb.vhd` | Testbench for the sine table |
 
