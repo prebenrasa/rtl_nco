@@ -28,8 +28,10 @@ UVVM_LIB ?= $(HOME)/design/libs/uvvm_compiled/ghdl      # compiled libraries (*-
 # ---- Paths
 SIM_DIR   := sim
 BUILD_DIR := build
-SRC       := $(wildcard src/*.vhd)
-TBS       := $(wildcard tb/*.vhd)
+# source lists (absolute paths) come from sources.mk, which parent projects include too
+include sources.mk
+SRC       := $(RTL_NCO_SRC)
+TBS       := $(RTL_NCO_TB)
 
 TOP  := $(strip $(TOP))
 TB   := $(strip $(TB))
@@ -78,7 +80,7 @@ sim:
 	@mkdir -p $(SIM_DIR)
 	@# import file by file: an empty/unfinished file is skipped instead of stopping the run;
 	@# ghdl -m then only compiles the units that $(TB) actually needs
-	@cd $(SIM_DIR) && for f in $(addprefix ../,$(SRC) $(TBS)); do \
+	@cd $(SIM_DIR) && for f in $(SRC) $(TBS); do \
 		out=$$($(GHDL) -i $(GHDL_FLAGS) $$f 2>&1) || \
 		{ echo "$$out" | grep -q "no design unit" && echo "skipped $$f (empty)" || echo "$$out"; }; \
 	done
