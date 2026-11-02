@@ -29,7 +29,7 @@ architecture bhv of nco_tb is
     -- entity signals
     signal clk                 : std_logic                             := '0';
     signal clk_en              : std_logic                             := '0';
-    signal reset               : std_logic                             := '1';
+    signal reset_n             : std_logic                             := '0';
     signal step_size           : unsigned(GC_PHASE_WIDTH - 1 downto 0) := (others => '0');
     signal sine_valid          : std_logic;
     signal sine_data, cos_data : signed(GC_SAMPLE_WIDTH - 1 downto 0);
@@ -62,7 +62,7 @@ begin
         port map(
             clk        => clk,
             clk_en     => clk_en,
-            reset      => reset,
+            reset_n    => reset_n,
             step_size  => step_size,
             sine_valid => sine_valid,
             sine_data  => sine_data,
@@ -74,7 +74,7 @@ begin
         variable v_phase : unsigned(GC_PHASE_WIDTH - 1 downto 0) := (others => '0');
     begin
         if rising_edge(clk) then
-            if reset = '1' then
+            if reset_n = '0' then
                 v_phase := (others => '0');
                 if not sb_sin.is_empty(VOID) then
                     sb_sin.flush("samples in flight are discarded by reset");
@@ -95,7 +95,7 @@ begin
     p_checker : process (clk)
     begin
         if rising_edge(clk) then
-            if reset = '0' and sine_valid = '1' then
+            if reset_n = '1' and sine_valid = '1' then
                 sb_cos.check_received(to_integer(cos_data));
                 sb_sin.check_received(to_integer(sine_data));
                 s_peak_max <= maximum(s_peak_max, to_integer(sine_data));
@@ -151,7 +151,7 @@ begin
 
         log(ID_LOG_HDR, "Reset");
         step(2);
-        reset <= '0';
+        reset_n <= '1';
         step;
         check_value(sine_valid, '0', ERROR, "sine_valid low after reset");
 
@@ -185,10 +185,10 @@ begin
 
         log(ID_LOG_HDR, "Reset in the middle of a run");
         run_samples(5);
-        reset <= '1';
+        reset_n <= '0';
         step;
         check_value(sine_valid, '0', ERROR, "sine_valid cleared by reset");
-        reset <= '0';
+        reset_n <= '1';
         run_samples(C_PERIOD);
         drain;
 
