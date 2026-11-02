@@ -17,18 +17,22 @@ entity nco is
         reset      : in std_logic;
         step_size  : in unsigned(GC_PHASE_WIDTH - 1 downto 0);
         sine_valid : out std_logic;
-        sine_data  : out signed(GC_SAMPLE_WIDTH - 1 downto 0)
+        sine_data  : out signed(GC_SAMPLE_WIDTH - 1 downto 0);
+        cos_data   : out signed(GC_SAMPLE_WIDTH - 1 downto 0)
     );
 begin
     assert f_nco_config_ok(GC_PHASE_WIDTH, GC_ADDR_WIDTH, GC_SAMPLE_WIDTH) severity failure;
 end entity nco;
 
 architecture rtl of nco is
-    constant C_LUT : t_sine_lut := f_sine_lut(GC_ADDR_WIDTH, GC_SAMPLE_WIDTH);
+    constant C_LUT          : t_sine_lut                           := f_sine_lut(GC_ADDR_WIDTH, GC_SAMPLE_WIDTH);
+    constant C_QUARTER_WAVE : unsigned(GC_ADDR_WIDTH - 1 downto 0) := f_nco_quarter_wave(GC_ADDR_WIDTH);
 
     signal s_accumulator : unsigned(GC_PHASE_WIDTH - 1 downto 0) := (others => '0');
-    signal s_rom         : signed(GC_SAMPLE_WIDTH - 1 downto 0); -- RAM read stage
+    signal s_sine_rom    : signed(GC_SAMPLE_WIDTH - 1 downto 0); -- RAM read stage
+    signal s_cos_rom     : signed(GC_SAMPLE_WIDTH - 1 downto 0); -- RAM read stage
     signal s_sine_data   : signed(GC_SAMPLE_WIDTH - 1 downto 0); -- RAM output  
+    signal s_cos_data    : signed(GC_SAMPLE_WIDTH - 1 downto 0); -- RAM output  
     signal s_valid_dly   : std_logic_vector(C_NCO_LATENCY - 1 downto 0) := (others => '0');
 begin
     -- Accumulator: increases by step-size each clock
@@ -43,14 +47,16 @@ begin
         end if;
     end process;
 
-    -- ROM: cuts accumulator output to only top address bits and reads from sine LUT 
+    -- ROM: cuts accumulator output to only top address bits and reads from LUT 
     p_rom : process (clk)
         variable v_address : unsigned(GC_ADDR_WIDTH - 1 downto 0);
     begin
         if rising_edge(clk) then
             v_address := s_accumulator(GC_PHASE_WIDTH - 1 downto GC_PHASE_WIDTH - GC_ADDR_WIDTH);
-            s_rom       <= C_LUT(to_integer(v_address));
-            s_sine_data <= s_rom;
+            s_sine_rom  <= C_LUT(to_integer(v_address));
+            s_cos_rom   <= C_LUT(to_integer(v_address + C_QUARTER_WAVE));
+            s_sine_data <= s_sine_rom;
+            s_cos_data  <= s_cos_rom;
         end if;
     end process;
 
@@ -67,5 +73,6 @@ begin
     -- assign output
     sine_valid <= s_valid_dly(s_valid_dly'high);
     sine_data  <= s_sine_data;
+    cos_data   <= s_cos_data;
 
 end architecture;

@@ -10,6 +10,8 @@
 --   f_nco_step_is_exact : true when that step_size is an exact integer, so the
 --                         carrier phase does not drift relative to the samples.
 --   f_nco_config_ok     : true when the nco generics are legal; reports why not.
+--   f_nco_quarter_wave  : LUT address offset of 90 degrees, 2**(addr_width - 2),
+--                         added to the sine address to read the cosine.
 --
 -- Notes
 --   - The step is computed in unsigned of width phase_width + 32, so any
@@ -25,6 +27,7 @@ package nco_pkg is
     function f_nco_step(constant cycles : positive; constant samples : positive; constant phase_width : positive) return unsigned;
     function f_nco_step_is_exact(constant cycles : positive; constant samples : positive; constant phase_width : positive) return boolean;
     function f_nco_config_ok(constant phase_width : positive; constant addr_width : positive; constant sample_width : positive) return boolean;
+    function f_nco_quarter_wave(constant addr_width : positive) return unsigned;
 end package;
 
 package body nco_pkg is
@@ -51,10 +54,19 @@ package body nco_pkg is
                 integer'image(phase_width) & ")" severity failure;
             return false;
         end if;
+        if addr_width < 2 then
+            report "nco: GC_ADDR_WIDTH (" & integer'image(addr_width) & ") must be >= 2 (a quarter wave needs 4 LUT entries)" severity failure;
+            return false;
+        end if;
         if sample_width < 2 then
             report "nco: GC_SAMPLE_WIDTH must be >= 2 (1 bit gives an all-zero sine)" severity failure;
             return false;
         end if;
         return true;
+    end function;
+
+    function f_nco_quarter_wave(constant addr_width : positive) return unsigned is
+    begin
+        return to_unsigned(2 ** (addr_width - 2), addr_width);
     end function;
 end package body;
